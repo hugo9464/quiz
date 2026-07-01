@@ -182,7 +182,7 @@ export function HostPage() {
 
         {/* Barre de contrôle live — pensée mobile d'abord (l'animateur pilote au téléphone) */}
         <div
-          className={`sticky top-2 z-10 mb-6 rounded-2xl border p-3 backdrop-blur sm:p-4 ${p.panel}`}
+          className={`mb-6 rounded-2xl border p-3 sm:p-4 ${p.panel}`}
         >
           {/* Ligne d'état : phase */}
           <div className="flex items-center justify-between gap-2">
