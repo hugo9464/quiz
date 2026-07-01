@@ -272,17 +272,18 @@ export async function updateQuestion({
   check(error);
 }
 
-// Réordonne les questions : `orderedIds` est la nouvelle liste ordonnée (index → order).
-export async function reorderQuestions({
-  orderedIds,
+// Applique un nouveau placement des questions (manche + position). On ne met à
+// jour que les questions dont la manche ou l'ordre a changé.
+export async function updateQuestionPlacements({
+  placements,
 }: {
-  orderedIds: string[];
+  placements: { id: string; roundId: string; order: number }[];
 }): Promise<void> {
   await Promise.all(
-    orderedIds.map(async (id, i) => {
+    placements.map(async ({ id, roundId, order }) => {
       const { error } = await supabase
         .from("questions")
-        .update({ order: i })
+        .update({ round_id: roundId, order })
         .eq("id", id);
       check(error);
     }),

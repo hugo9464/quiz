@@ -1,7 +1,68 @@
+import { useLayoutEffect, useRef } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useLiveQuery } from "../lib/useLiveQuery";
 import { getDisplayState } from "../lib/api";
 import type { Theme } from "../lib/types";
+
+// Agrandit la police au maximum pour que le texte remplisse son conteneur
+// (largeur ET hauteur), sans déborder. Recalcule au redimensionnement et quand
+// le texte change. C'est ce qui fait « prendre le plus de place possible ».
+function FitText({
+  text,
+  className = "",
+  max = 600,
+  fill = 0.85,
+}: {
+  text: string;
+  className?: string;
+  max?: number;
+  // Fraction de la taille maximale réellement appliquée (< 1 = un peu plus petit,
+  // laisse une marge autour du texte).
+  fill?: number;
+}) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const el = textRef.current;
+    if (!box || !el) return;
+    const fit = () => {
+      const maxW = box.clientWidth;
+      const maxH = box.clientHeight;
+      if (!maxW || !maxH) return;
+      let lo = 8;
+      let hi = max;
+      let best = 8;
+      for (let i = 0; i < 14; i++) {
+        const mid = (lo + hi) / 2;
+        el.style.fontSize = `${mid}px`;
+        if (el.scrollWidth <= maxW && el.scrollHeight <= maxH) {
+          best = mid;
+          lo = mid;
+        } else {
+          hi = mid;
+        }
+      }
+      el.style.fontSize = `${best * fill}px`;
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [text, max, fill]);
+
+  return (
+    <div
+      ref={boxRef}
+      className="flex h-full w-full items-center justify-center overflow-hidden text-center"
+    >
+      <div ref={textRef} className={className} style={{ width: "100%", lineHeight: 1.05 }}>
+        {text}
+      </div>
+    </div>
+  );
+}
 
 // Palette d'affichage TV selon le thème piloté depuis la page Animer.
 function palette(theme: Theme) {
@@ -22,13 +83,6 @@ function palette(theme: Theme) {
     answerLabel: dark ? "text-emerald-400" : "text-emerald-600",
     answerText: dark ? "text-emerald-200" : "text-emerald-700",
   };
-}
-
-// Taille des propositions QCM : moins il y en a, plus c'est gros (l'écran est rempli).
-function choiceTextSize(n: number): string {
-  if (n <= 2) return "text-5xl md:text-7xl";
-  if (n <= 4) return "text-4xl md:text-6xl";
-  return "text-3xl md:text-5xl"; // 5 propositions ou plus
 }
 
 export function DisplayPage() {
@@ -89,19 +143,14 @@ export function DisplayPage() {
 
   return (
     <Screen className={p.screen}>
-      {/* Énoncé */}
-      <div
-        className={`flex flex-1 flex-col text-center ${
-          q.type === "text" ? "items-center justify-center" : "min-h-0"
-        }`}
-      >
-        <h1 className="shrink-0 text-5xl font-black leading-tight tracking-tight md:text-7xl">
-          {q.text}
-        </h1>
-
-        {q.type === "mcq" && q.choices && (
+      {q.type === "mcq" && q.choices ? (
+        // QCM : énoncé en haut (auto-fit), propositions qui remplissent le reste.
+        <div className="flex min-h-0 flex-1 flex-col gap-4 md:gap-6">
+          <div className="min-h-0 shrink-0 basis-[28%]">
+            <FitText text={q.text} className="font-black tracking-tight" />
+          </div>
           <div
-            className={`mt-6 grid min-h-0 flex-1 auto-rows-fr gap-3 md:mt-10 md:gap-5 ${
+            className={`grid min-h-0 flex-1 auto-rows-fr gap-3 md:gap-5 ${
               q.choices.length <= 3 ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2"
             }`}
           >
@@ -110,31 +159,41 @@ export function DisplayPage() {
               return (
                 <div
                   key={i}
-                  className={`flex items-center justify-center rounded-2xl border-2 px-6 py-3 text-center font-bold leading-tight transition-all duration-300 ${choiceTextSize(
-                    q.choices!.length,
-                  )} ${highlight ? p.choiceOk : p.choice}`}
+                  className={`min-h-0 rounded-2xl border-2 p-3 transition-all duration-300 ${
+                    highlight ? p.choiceOk : p.choice
+                  }`}
                 >
-                  {c.text}
+                  <FitText text={c.text} className="font-bold" max={200} />
                 </div>
               );
             })}
           </div>
-        )}
-
-        {/* Réponse libre révélée */}
-        {q.type === "text" && revealed && (
-          <div className={`mt-12 rounded-2xl border-2 px-10 py-6 ${p.answerBox}`}>
-            <div
-              className={`text-2xl uppercase tracking-widest ${p.answerLabel}`}
-            >
-              Réponse
-            </div>
-            <div className={`mt-2 text-5xl font-black md:text-6xl ${p.answerText}`}>
-              {q.answer}
-            </div>
+        </div>
+      ) : (
+        // Question libre : énoncé qui remplit l'écran, réponse en dessous si révélée.
+        <div className="flex min-h-0 flex-1 flex-col gap-6">
+          <div className="min-h-0 flex-1">
+            <FitText text={q.text} className="font-black tracking-tight" />
           </div>
-        )}
-      </div>
+          {revealed && q.answer && (
+            <div
+              className={`flex min-h-0 shrink-0 basis-[38%] flex-col rounded-2xl border-2 p-4 ${p.answerBox}`}
+            >
+              <div
+                className={`shrink-0 text-xl uppercase tracking-widest md:text-2xl ${p.answerLabel}`}
+              >
+                Réponse
+              </div>
+              <div className="min-h-0 flex-1 pt-2">
+                <FitText
+                  text={q.answer}
+                  className={`font-black ${p.answerText}`}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </Screen>
   );
 }

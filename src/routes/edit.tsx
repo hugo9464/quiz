@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import { useLiveQuery } from "../lib/useLiveQuery";
 import {
@@ -10,11 +10,27 @@ import {
   listByQuiz,
   listRounds,
   renameRound,
-  reorderQuestions,
   updateQuestion,
+  updateQuestionPlacements,
 } from "../lib/api";
 import type { Question, Round, Theme } from "../lib/types";
 import { QuestionForm, type QuestionDraft } from "../components/QuestionForm";
+
+// Manche + ses questions ordonnées (structure pilotant le drag-and-drop).
+type Group = { roundId: string; items: Question[] };
+// Cible d'insertion : dans la manche `roundId`, avant la question `beforeId`
+// (ou en fin de manche si `beforeId` est null).
+type DropTarget = { roundId: string; beforeId: string | null };
+
+function buildGroups(rounds: Round[], questions: Question[]): Group[] {
+  const sorted = [...rounds].sort((a, b) => a.order - b.order);
+  return sorted.map((r) => ({
+    roundId: r._id,
+    items: questions
+      .filter((q) => q.roundId === r._id)
+      .sort((a, b) => a.order - b.order),
+  }));
+}
 
 export function EditPage() {
   const { quizId: id } = useParams({ from: "/quiz/$quizId/edit" });
@@ -34,6 +50,62 @@ export function EditPage() {
   );
 
   const [newRound, setNewRound] = useState("");
+
+  // --- Drag-and-drop au niveau page : déplacer une question DANS une manche ou
+  // VERS une autre manche. On ne réordonne PAS le DOM pendant le drag (recréer le
+  // nœud déplacé casserait le drag natif entre <ol>) : on montre une ligne
+  // d'insertion et on applique le changement au drop. ---
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+  const groups = useMemo(
+    () => buildGroups(rounds ?? [], questions ?? []),
+    [rounds, questions],
+  );
+
+  const endDrag = () => {
+    setDragId(null);
+    setDropTarget(null);
+  };
+
+  const applyDrop = () => {
+    if (!dragId || !dropTarget || dropTarget.beforeId === dragId) {
+      endDrag();
+      return;
+    }
+    const layout = buildGroups(rounds ?? [], questions ?? []);
+    let moved: Question | undefined;
+    for (const g of layout) {
+      const idx = g.items.findIndex((q) => q._id === dragId);
+      if (idx >= 0) {
+        moved = g.items[idx];
+        g.items.splice(idx, 1);
+        break;
+      }
+    }
+    const target = layout.find((g) => g.roundId === dropTarget.roundId);
+    if (!moved || !target) {
+      endDrag();
+      return;
+    }
+    const at = dropTarget.beforeId
+      ? target.items.findIndex((q) => q._id === dropTarget.beforeId)
+      : target.items.length;
+    target.items.splice(at === -1 ? target.items.length : at, 0, moved);
+
+    // On ne persiste que les questions dont la manche ou la position a changé.
+    const server = questions ?? [];
+    const placements: { id: string; roundId: string; order: number }[] = [];
+    layout.forEach((g) =>
+      g.items.forEach((item, i) => {
+        const s = server.find((x) => x._id === item._id);
+        if (!s || s.roundId !== g.roundId || s.order !== i) {
+          placements.push({ id: item._id, roundId: g.roundId, order: i });
+        }
+      }),
+    );
+    if (placements.length) updateQuestionPlacements({ placements });
+    endDrag();
+  };
 
   if (quiz === null) {
     return <CenteredMessage message="Quiz introuvable." />;
@@ -74,14 +146,26 @@ export function EditPage() {
         </p>
       ) : (
         <div className="space-y-8">
-          {rounds.map((round) => (
-            <RoundSection
-              key={round._id}
-              quizId={id}
-              round={round}
-              questions={questions.filter((q) => q.roundId === round._id)}
-            />
-          ))}
+          {groups.map((g) => {
+            const round = rounds.find((r) => r._id === g.roundId);
+            if (!round) return null;
+            return (
+              <RoundSection
+                key={g.roundId}
+                quizId={id}
+                round={round}
+                items={g.items}
+                dragId={dragId}
+                dropTarget={dropTarget}
+                onItemDragStart={setDragId}
+                onSetDrop={(roundId, beforeId) =>
+                  setDropTarget({ roundId, beforeId })
+                }
+                onDrop={applyDrop}
+                onDragEnd={endDrag}
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -91,45 +175,37 @@ export function EditPage() {
 function RoundSection({
   quizId,
   round,
-  questions,
+  items,
+  dragId,
+  dropTarget,
+  onItemDragStart,
+  onSetDrop,
+  onDrop,
+  onDragEnd,
 }: {
   quizId: string;
   round: Round;
-  questions: Question[];
+  items: Question[];
+  dragId: string | null;
+  dropTarget: DropTarget | null;
+  onItemDragStart: (id: string) => void;
+  onSetDrop: (roundId: string, beforeId: string | null) => void;
+  onDrop: () => void;
+  onDragEnd: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Ordre local pour le drag-and-drop (feedback immédiat), resynchronisé quand
-  // le serveur renvoie une liste différente (ajout/suppression/réordre).
-  const [order, setOrder] = useState<Question[]>(questions);
-  const [dragId, setDragId] = useState<string | null>(null);
-  const serverKey = questions.map((q) => q._id).join(",");
-  useEffect(() => {
-    setOrder(questions);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverKey]);
-
-  const handleDragOver = (overId: string) => {
-    if (!dragId || dragId === overId) return;
-    setOrder((prev) => {
-      const from = prev.findIndex((q) => q._id === dragId);
-      const to = prev.findIndex((q) => q._id === overId);
-      if (from === -1 || to === -1) return prev;
-      const copy = prev.slice();
-      const [moved] = copy.splice(from, 1);
-      copy.splice(to, 0, moved);
-      return copy;
-    });
-  };
-
-  const handleDrop = () => {
-    if (!dragId) return;
-    setDragId(null);
-    const ids = order.map((q) => q._id);
-    // N'écrit que si l'ordre a réellement changé.
-    if (ids.join(",") !== serverKey) reorderQuestions({ orderedIds: ids });
-  };
+  const dragging = !!dragId;
+  // Ligne d'insertion : affichée juste avant la question `beforeId` (ou en fin de
+  // manche si null) quand c'est la cible de dépose courante.
+  const lineHere = (beforeId: string | null) =>
+    dragging &&
+    dropTarget?.roundId === round._id &&
+    dropTarget.beforeId === beforeId;
+  const Line = () => (
+    <li className="h-1 rounded bg-violet-500" aria-hidden="true" />
+  );
 
   return (
     <section>
@@ -153,8 +229,33 @@ function RoundSection({
         </button>
       </div>
 
-      <ol className="space-y-2">
-        {order.map((q, i) =>
+      {/* onDragOver du <ol> = survol de la zone (fin de liste / manche vide) →
+          insertion en fin de manche. Les lignes stoppent la propagation pour
+          viser une position précise (avant/après selon la moitié survolée). */}
+      <ol
+        className="space-y-2"
+        onDragOver={(e) => {
+          if (!dragging) return;
+          e.preventDefault();
+          onSetDrop(round._id, null);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          onDrop();
+        }}
+      >
+        {items.length === 0 && (
+          <li
+            className={`rounded-lg border border-dashed px-4 py-6 text-center text-sm ${
+              lineHere(null)
+                ? "border-violet-500 text-violet-400"
+                : "border-zinc-700 text-zinc-600"
+            }`}
+          >
+            Glisser une question ici
+          </li>
+        )}
+        {items.map((q, i) =>
           editingId === q._id ? (
             <li key={q._id}>
               <QuestionForm
@@ -173,51 +274,68 @@ function RoundSection({
               />
             </li>
           ) : (
-            <li
-              key={q._id}
-              draggable
-              onDragStart={() => setDragId(q._id)}
-              onDragOver={(e) => {
-                e.preventDefault();
-                handleDragOver(q._id);
-              }}
-              onDrop={handleDrop}
-              onDragEnd={() => setDragId(null)}
-              className={`flex items-start justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-3 transition ${
-                dragId === q._id ? "opacity-40" : ""
-              }`}
-            >
-              <div className="flex min-w-0 items-start gap-2">
-                <span
-                  className="mt-0.5 shrink-0 cursor-grab select-none px-1 leading-none text-zinc-600 active:cursor-grabbing"
-                  title="Glisser pour réordonner"
-                  aria-hidden
-                >
-                  ⋮⋮
-                </span>
-                <div className="min-w-0">
-                  <span className="mr-2 text-sm text-zinc-500">{i + 1}.</span>
-                  <span className="font-medium">{q.text}</span>
-                  <QuestionAnswerPreview q={q} />
+            <Fragment key={q._id}>
+              {lineHere(q._id) && <Line />}
+              <li
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", q._id);
+                  onItemDragStart(q._id);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (q._id === dragId) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const after = e.clientY > rect.top + rect.height / 2;
+                  const beforeId = after ? items[i + 1]?._id ?? null : q._id;
+                  if (beforeId === dragId) return;
+                  onSetDrop(round._id, beforeId);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDrop();
+                }}
+                onDragEnd={onDragEnd}
+                className={`flex items-start justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-3 transition ${
+                  dragId === q._id ? "opacity-40" : ""
+                }`}
+              >
+                <div className="flex min-w-0 items-start gap-2">
+                  <span
+                    className="mt-0.5 shrink-0 cursor-grab select-none px-1 leading-none text-zinc-600 active:cursor-grabbing"
+                    title="Glisser pour réordonner ou changer de manche"
+                    aria-hidden="true"
+                  >
+                    ⋮⋮
+                  </span>
+                  <div className="min-w-0">
+                    <span className="mr-2 text-sm text-zinc-500">{i + 1}.</span>
+                    <span className="font-medium">{q.text}</span>
+                    <QuestionAnswerPreview q={q} />
+                  </div>
                 </div>
-              </div>
-              <div className="flex shrink-0 gap-1 text-sm">
-                <button
-                  onClick={() => setEditingId(q._id)}
-                  className="rounded-md bg-zinc-800 px-2.5 py-1 hover:bg-zinc-700"
-                >
-                  Éditer
-                </button>
-                <button
-                  onClick={() => deleteQuestion({ questionId: q._id })}
-                  className="rounded-md px-2 py-1 text-zinc-500 hover:text-red-400"
-                >
-                  ✕
-                </button>
-              </div>
-            </li>
+                <div className="flex shrink-0 gap-1 text-sm">
+                  <button
+                    onClick={() => setEditingId(q._id)}
+                    className="rounded-md bg-zinc-800 px-2.5 py-1 hover:bg-zinc-700"
+                  >
+                    Éditer
+                  </button>
+                  <button
+                    onClick={() => deleteQuestion({ questionId: q._id })}
+                    className="rounded-md px-2 py-1 text-zinc-500 hover:text-red-400"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </li>
+            </Fragment>
           ),
         )}
+        {items.length > 0 && lineHere(null) && <Line />}
       </ol>
 
       <div className="mt-3">
