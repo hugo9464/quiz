@@ -11,7 +11,6 @@ import {
   nextQuestion as next,
   prevControlPatch,
   prevQuestion as prev,
-  reset as resetControl,
   revealAnswer as reveal,
   setActiveQuestion as setActive,
   setTheme,
@@ -173,14 +172,14 @@ export function HostPage() {
       void prev({ quizId: id });
     }
   };
-  // Revient à la toute première question du quiz.
+  // Revient à l'écran d'accueil (avant la première question).
   const goStart = () => {
-    if (control && navItems.length) {
+    if (control) {
       void updateControl({
         controlId: control._id,
         patch: {
-          active_question_id: navItems[0].id,
-          phase: "question",
+          active_question_id: null,
+          phase: "idle",
           reviewing: false,
           timer_ends_at: null,
         },
@@ -318,18 +317,10 @@ export function HostPage() {
             <div className="ml-auto flex items-center gap-1">
               <button
                 onClick={goStart}
-                disabled={!navItems.length}
-                className={`rounded-lg px-2 py-2.5 text-sm disabled:opacity-40 ${p.ghost}`}
-                title="Revenir à la première question"
+                className={`rounded-lg px-2 py-2.5 text-sm ${p.ghost}`}
+                title="Revenir à l'écran d'accueil"
               >
                 Début
-              </button>
-              <button
-                onClick={() => resetControl({ quizId: id })}
-                className={`rounded-lg px-2 py-2.5 text-sm ${p.ghost}`}
-                title="Écran d'attente"
-              >
-                Repos
               </button>
             </div>
           </div>
