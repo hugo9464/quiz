@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useLiveQuery } from "../lib/useLiveQuery";
 import { getDisplayState } from "../lib/api";
@@ -246,6 +246,42 @@ function RevealFx() {
   );
 }
 
+// Heure de début visée (24h). Le décompte de l'accueil vise cette heure aujourd'hui.
+const START_HOUR = 20;
+const START_MINUTE = 5;
+
+// Décompte HH:MM:SS jusqu'à `hour`:`minute` aujourd'hui (heure locale).
+function Countdown({
+  hour,
+  minute,
+  className,
+}: {
+  hour: number;
+  minute: number;
+  className?: string;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const target = new Date(now);
+  target.setHours(hour, minute, 0, 0);
+  const diff = Math.max(0, target.getTime() - now);
+  if (diff === 0) {
+    return <div className={className}>C'est parti&nbsp;!</div>;
+  }
+  const total = Math.floor(diff / 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const text = `${pad(Math.floor(total / 3600))}:${pad(
+    Math.floor((total % 3600) / 60),
+  )}:${pad(total % 60)}`;
+  return (
+    <div className={`font-mono tabular-nums ${className ?? ""}`}>{text}</div>
+  );
+}
+
 export function DisplayPage() {
   const { quizId: id } = useParams({ from: "/quiz/$quizId/display" });
   const state = useLiveQuery(
@@ -317,6 +353,11 @@ export function DisplayPage() {
           <p className={`mt-6 text-3xl ${p.subtle}`}>
             Le quiz va bientôt commencer…
           </p>
+          <Countdown
+            hour={START_HOUR}
+            minute={START_MINUTE}
+            className="mt-8 text-8xl font-black leading-none md:text-[12rem]"
+          />
         </div>
       </Screen>
     );
