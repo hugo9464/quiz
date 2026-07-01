@@ -3,9 +3,10 @@
 // `api.ts` conservent les mêmes noms de champs camelCase que les anciens docs
 // Convex (`_id`, `quizId`, `timerEndsAt`…) pour minimiser les changements côté UI.
 
-export type Phase = "idle" | "question" | "reveal";
+export type Phase = "idle" | "question" | "reveal" | "round_end";
 export type QuestionType = "text" | "mcq";
 export type Choice = { text: string; correct: boolean };
+export type Theme = "dark" | "light";
 
 export type Quiz = {
   _id: string;
@@ -37,6 +38,9 @@ export type ControlState = {
   activeQuestionId: string | null;
   phase: Phase;
   timerEndsAt: number | null;
+  theme: Theme;
+  // Vrai pendant la passe de correction (on redéroule la manche pour révéler les réponses).
+  reviewing: boolean;
 };
 
 export type DisplayState = {
@@ -47,4 +51,7 @@ export type DisplayState = {
   roundTitle: string;
   questionNumber: number;
   totalQuestions: number;
+  theme: Theme;
+  // Renseigné en phase "round_end" : vrai si c'est la dernière manche du quiz.
+  isLastRound: boolean;
 };

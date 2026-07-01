@@ -12,7 +12,7 @@ import {
   renameRound,
   updateQuestion,
 } from "../lib/api";
-import type { Question, Round } from "../lib/types";
+import type { Question, Round, Theme } from "../lib/types";
 import { QuestionForm, type QuestionDraft } from "../components/QuestionForm";
 
 export function EditPage() {
@@ -222,11 +222,17 @@ export function TopBar({
   quizId,
   title,
   active,
+  theme = "dark",
 }: {
   quizId: string;
   title: string;
   active: "edit" | "host";
+  theme?: Theme;
 }) {
+  const dark = theme === "dark";
+  const neutral = dark
+    ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+    : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300";
   const tab = (
     label: string,
     to: "/quiz/$quizId/edit" | "/quiz/$quizId/host",
@@ -236,9 +242,7 @@ export function TopBar({
       to={to}
       params={{ quizId }}
       className={`rounded-md px-3 py-1.5 ${
-        active === key
-          ? "bg-violet-600 text-white"
-          : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+        active === key ? "bg-violet-600 text-white" : neutral
       }`}
     >
       {label}
@@ -246,20 +250,27 @@ export function TopBar({
   );
   return (
     <nav className="mb-6 flex items-center gap-2 text-sm">
-      <Link to="/" className="text-zinc-500 hover:text-zinc-300">
+      <Link
+        to="/"
+        className={dark ? "text-zinc-500 hover:text-zinc-300" : "text-zinc-400 hover:text-zinc-600"}
+      >
         ← Quiz
       </Link>
-      <span className="text-zinc-700">/</span>
-      <span className="mr-auto truncate text-zinc-400">{title}</span>
+      <span className={dark ? "text-zinc-700" : "text-zinc-300"}>/</span>
+      <span
+        className={`mr-auto truncate ${dark ? "text-zinc-400" : "text-zinc-500"}`}
+      >
+        {title}
+      </span>
       {tab("Préparer", "/quiz/$quizId/edit", "edit")}
       {tab("Animer", "/quiz/$quizId/host", "host")}
       <Link
         to="/quiz/$quizId/display"
         params={{ quizId }}
         target="_blank"
-        className="rounded-md bg-zinc-800 px-3 py-1.5 text-zinc-300 hover:bg-zinc-700"
+        className={`rounded-md px-3 py-1.5 ${neutral}`}
       >
-        📺 Télé
+        Télé
       </Link>
     </nav>
   );

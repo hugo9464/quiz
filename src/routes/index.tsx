@@ -17,7 +17,7 @@ export function HomePage() {
   return (
     <div className="mx-auto max-w-3xl px-6 py-12">
       <header className="mb-10">
-        <h1 className="text-4xl font-bold tracking-tight">🍻 Quiz du bar</h1>
+        <h1 className="text-4xl font-bold tracking-tight">Quiz du bar</h1>
         <p className="mt-2 text-zinc-400">
           Prépare tes manches et diffuse-les sur les télés en direct.
         </p>
@@ -74,7 +74,7 @@ export function HomePage() {
                   params={{ quizId: quiz._id }}
                   className="rounded-md bg-zinc-800 px-3 py-1.5 transition hover:bg-zinc-700"
                 >
-                  📺 Télé
+                  Télé
                 </Link>
                 <button
                   onClick={() => {

@@ -8,6 +8,7 @@ import type {
   QuestionType,
   Quiz,
   Round,
+  Theme,
 } from "./types";
 
 // ---------- Mappers : lignes Postgres (snake_case) → docs domaine (camelCase) ----------
@@ -30,6 +31,8 @@ type ControlRow = {
   active_question_id: string | null;
   phase: Phase;
   timer_ends_at: number | string | null;
+  theme: Theme;
+  reviewing: boolean;
 };
 
 const mapQuiz = (r: QuizRow): Quiz => ({
@@ -62,6 +65,8 @@ const mapControl = (r: ControlRow): ControlState => ({
   activeQuestionId: r.active_question_id,
   phase: r.phase,
   timerEndsAt: r.timer_ends_at === null ? null : Number(r.timer_ends_at),
+  theme: r.theme ?? "dark",
+  reviewing: r.reviewing ?? false,
 });
 
 // Lève l'erreur Supabase si présente (pour ne pas masquer les échecs).
@@ -410,22 +415,89 @@ export async function hideAnswer({
   }
 }
 
-async function step(quizId: string, direction: 1 | -1): Promise<void> {
+// Avance d'un cran dans le déroulé d'animation. Chaque manche comporte deux passes :
+//   1. passe "questions" : Q1..QN (les équipes répondent) → écran de fin de manche
+//   2. passe "correction" (reviewing) : on redéroule Q1..QN de la MÊME manche pour
+//      dévoiler les réponses (bouton Révéler), puis on enchaîne sur la manche suivante.
+export async function nextQuestion({
+  quizId,
+}: {
+  quizId: string;
+}): Promise<void> {
   const control = await getOrCreateControl(quizId);
   const ordered = await orderedQuestions(quizId);
   if (ordered.length === 0) return;
+
+  // Depuis l'écran de fin de manche : on démarre la passe de correction sur la
+  // première question de la manche qui vient de se terminer.
+  if (control.phase === "round_end") {
+    const lastIdx = ordered.findIndex(
+      (q) => q.id === control.active_question_id,
+    );
+    if (lastIdx === -1) return;
+    const roundId = ordered[lastIdx].round_id;
+    const firstOfRound = ordered.find((q) => q.round_id === roundId);
+    if (!firstOfRound) return;
+    await patchControl(control.id, {
+      active_question_id: firstOfRound.id,
+      phase: "question",
+      reviewing: true,
+      timer_ends_at: null,
+    });
+    return;
+  }
 
   const currentIndex = control.active_question_id
     ? ordered.findIndex((q) => q.id === control.active_question_id)
     : -1;
 
-  let nextIndex: number;
+  // Pas encore démarré : on affiche la première question (passe questions).
   if (currentIndex === -1) {
-    nextIndex = direction === 1 ? 0 : ordered.length - 1;
-  } else {
-    nextIndex = currentIndex + direction;
+    await patchControl(control.id, {
+      active_question_id: ordered[0].id,
+      phase: "question",
+      reviewing: false,
+      timer_ends_at: null,
+    });
+    return;
   }
-  if (nextIndex < 0 || nextIndex >= ordered.length) return; // bornes
+
+  const nextIndex = currentIndex + 1;
+  const endOfQuiz = nextIndex >= ordered.length;
+  const changesRound =
+    !endOfQuiz &&
+    ordered[nextIndex].round_id !== ordered[currentIndex].round_id;
+
+  // Passe de correction en cours.
+  if (control.reviewing) {
+    if (endOfQuiz) return; // fin du quiz : on reste sur la dernière réponse dévoilée
+    // Fin de la manche corrigée → première question de la manche suivante (nouvelle passe questions).
+    if (changesRound) {
+      await patchControl(control.id, {
+        active_question_id: ordered[nextIndex].id,
+        phase: "question",
+        reviewing: false,
+        timer_ends_at: null,
+      });
+      return;
+    }
+    // Question suivante de la correction (même manche).
+    await patchControl(control.id, {
+      active_question_id: ordered[nextIndex].id,
+      phase: "question",
+      timer_ends_at: null,
+    });
+    return;
+  }
+
+  // Passe questions : à la dernière question de la manche (ou du quiz) → écran de fin de manche.
+  if (endOfQuiz || changesRound) {
+    await patchControl(control.id, {
+      phase: "round_end",
+      timer_ends_at: null,
+    });
+    return;
+  }
 
   await patchControl(control.id, {
     active_question_id: ordered[nextIndex].id,
@@ -434,40 +506,41 @@ async function step(quizId: string, direction: 1 | -1): Promise<void> {
   });
 }
 
-export async function nextQuestion({
-  quizId,
-}: {
-  quizId: string;
-}): Promise<void> {
-  await step(quizId, 1);
-}
-
 export async function prevQuestion({
   quizId,
 }: {
   quizId: string;
 }): Promise<void> {
-  await step(quizId, -1);
-}
-
-export async function startTimer({
-  quizId,
-  seconds,
-}: {
-  quizId: string;
-  seconds: number;
-}): Promise<void> {
   const control = await getOrCreateControl(quizId);
-  await patchControl(control.id, { timer_ends_at: Date.now() + seconds * 1000 });
-}
+  const ordered = await orderedQuestions(quizId);
+  if (ordered.length === 0) return;
 
-export async function clearTimer({
-  quizId,
-}: {
-  quizId: string;
-}): Promise<void> {
-  const control = await getOrCreateControl(quizId);
-  await patchControl(control.id, { timer_ends_at: null });
+  // Depuis l'écran de fin de manche : on revient à la dernière question affichée.
+  if (control.phase === "round_end") {
+    await patchControl(control.id, { phase: "question", timer_ends_at: null });
+    return;
+  }
+
+  const currentIndex = control.active_question_id
+    ? ordered.findIndex((q) => q.id === control.active_question_id)
+    : -1;
+
+  if (currentIndex === -1) {
+    await patchControl(control.id, {
+      active_question_id: ordered[ordered.length - 1].id,
+      phase: "question",
+      timer_ends_at: null,
+    });
+    return;
+  }
+
+  const prevIndex = currentIndex - 1;
+  if (prevIndex < 0) return; // déjà à la première question
+  await patchControl(control.id, {
+    active_question_id: ordered[prevIndex].id,
+    phase: "question",
+    timer_ends_at: null,
+  });
 }
 
 // Remet l'écran au repos (logo / attente).
@@ -481,7 +554,20 @@ export async function reset({
     active_question_id: null,
     phase: "idle",
     timer_ends_at: null,
+    reviewing: false,
   });
+}
+
+// Bascule le thème de l'écran TV (dark/light), synchronisé en temps réel.
+export async function setTheme({
+  quizId,
+  theme,
+}: {
+  quizId: string;
+  theme: Theme;
+}): Promise<void> {
+  const control = await getOrCreateControl(quizId);
+  await patchControl(control.id, { theme });
 }
 
 // Tout ce dont la TV a besoin en un seul appel (recomposé côté client).
@@ -514,13 +600,24 @@ export async function getDisplayState({
   let question: Question | null = null;
   let roundTitle = "";
   let questionNumber = 0;
+  let isLastRound = false;
 
-  if (control?.activeQuestionId) {
-    question = ordered.find((q) => q._id === control.activeQuestionId) ?? null;
-    if (question) {
-      roundTitle = rounds.find((r) => r._id === question!.roundId)?.title ?? "";
-      questionNumber = ordered.findIndex((q) => q._id === question!._id) + 1;
+  const activeDoc = control?.activeQuestionId
+    ? ordered.find((q) => q._id === control.activeQuestionId) ?? null
+    : null;
+
+  if (activeDoc) {
+    roundTitle = rounds.find((r) => r._id === activeDoc.roundId)?.title ?? "";
+    // La question n'est renvoyée qu'en phase active (pas en fin de manche).
+    if (control?.phase !== "round_end") {
+      question = activeDoc;
+      questionNumber = ordered.findIndex((q) => q._id === activeDoc._id) + 1;
     }
+    const lastRound = rounds
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .at(-1);
+    isLastRound = !!lastRound && lastRound._id === activeDoc.roundId;
   }
 
   return {
@@ -531,5 +628,7 @@ export async function getDisplayState({
     roundTitle,
     questionNumber,
     totalQuestions: ordered.length,
+    theme: control?.theme ?? "dark",
+    isLastRound,
   };
 }
