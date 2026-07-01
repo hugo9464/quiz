@@ -169,6 +169,20 @@ export function HostPage() {
       void prev({ quizId: id });
     }
   };
+  // Revient à la toute première question du quiz.
+  const goStart = () => {
+    if (control && navItems.length) {
+      void updateControl({
+        controlId: control._id,
+        patch: {
+          active_question_id: navItems[0].id,
+          phase: "question",
+          reviewing: false,
+          timer_ends_at: null,
+        },
+      });
+    }
+  };
 
   return (
     <div className={`min-h-screen transition-colors ${p.page}`}>
@@ -283,6 +297,14 @@ export function HostPage() {
             )}
 
             <div className="ml-auto flex items-center gap-1">
+              <button
+                onClick={goStart}
+                disabled={!navItems.length}
+                className={`rounded-lg px-2 py-2.5 text-sm disabled:opacity-40 ${p.ghost}`}
+                title="Revenir à la première question"
+              >
+                Début
+              </button>
               <button
                 onClick={() => resetControl({ quizId: id })}
                 className={`rounded-lg px-2 py-2.5 text-sm ${p.ghost}`}

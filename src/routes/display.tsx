@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useLiveQuery } from "../lib/useLiveQuery";
 import { getDisplayState } from "../lib/api";
@@ -90,6 +90,101 @@ function palette(theme: Theme) {
   };
 }
 
+const WTF_COLORS = [
+  "#ef4444",
+  "#f97316",
+  "#eab308",
+  "#22c55e",
+  "#06b6d4",
+  "#3b82f6",
+  "#a855f7",
+  "#ec4899",
+  "#14b8a6",
+  "#f43f5e",
+];
+
+const WTF_PHRASES = [
+  "BOUM !",
+  "ÉNORME !",
+  "OUAIS !",
+  "TADAAA !",
+  "MYTHIQUE !",
+  "AH OUAIS QUAND MÊME",
+  "LA CLASSE",
+  "C'ÉTAIT ÉVIDENT",
+  "BIM !",
+  "PAF, DANS L'MILLE",
+  "INCROYABLE !",
+  "ET VOILÀ !",
+  "MAGISTRAL",
+  "RESPECT",
+  "NO WAY",
+  "TROP FORT",
+];
+
+const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
+
+// Overlay chaotique affiché à la révélation : confettis + phrase débile + disco.
+// Tout est retiré au hasard une fois, au montage (donc à chaque révélation).
+function RevealFx() {
+  const fx = useMemo(
+    () => ({
+      pieces: Array.from({ length: 70 }, () => ({
+        left: Math.random() * 100,
+        delay: Math.random() * 0.6,
+        duration: 1.4 + Math.random() * 2.2,
+        size: 8 + Math.random() * 20,
+        color: pick(WTF_COLORS),
+        round: Math.random() > 0.5,
+      })),
+      phrase: pick(WTF_PHRASES),
+      phraseColor: pick(WTF_COLORS),
+      phraseRot: -14 + Math.random() * 28,
+      phraseTop: 6 + Math.random() * 22,
+    }),
+    [],
+  );
+  const { pieces, phrase, phraseColor, phraseRot, phraseTop } = fx;
+
+  return (
+    <div className="pointer-events-none fixed inset-0 z-50 overflow-hidden">
+      {pieces.map((p, i) => (
+        <span
+          key={i}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: `${p.left}%`,
+            width: `${p.size}px`,
+            height: `${p.size}px`,
+            backgroundColor: p.color,
+            borderRadius: p.round ? "9999px" : "2px",
+            animation: `wtf-fall ${p.duration}s linear ${p.delay}s infinite`,
+          }}
+        />
+      ))}
+      <div
+        className="absolute left-1/2 -translate-x-1/2"
+        style={{ top: `${phraseTop}%` }}
+      >
+        <div
+          className="rounded-2xl px-8 py-4 text-6xl font-black text-white md:text-8xl"
+          style={{
+            ["--r" as string]: `${phraseRot}deg`,
+            backgroundColor: phraseColor,
+            transform: `rotate(${phraseRot}deg)`,
+            boxShadow: "0 10px 40px rgba(0,0,0,0.4)",
+            animation:
+              "wtf-pop 0.5s cubic-bezier(0.2,1.6,0.4,1), wtf-fade 0.6s ease-in 1.9s forwards",
+          }}
+        >
+          {phrase}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function DisplayPage() {
   const { quizId: id } = useParams({ from: "/quiz/$quizId/display" });
   const state = useLiveQuery(
@@ -147,12 +242,16 @@ export function DisplayPage() {
 
   const q = state.question;
   const revealed = state.phase === "reveal";
+  const shake = revealed
+    ? { animation: "wtf-shake 0.6s ease-in-out" }
+    : undefined;
 
   return (
     <Screen className={p.screen}>
+      {revealed && <RevealFx />}
       {q.type === "mcq" && q.choices ? (
         // QCM : énoncé en haut (auto-fit), propositions qui remplissent le reste.
-        <div className="flex min-h-0 flex-1 flex-col gap-4 md:gap-6">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 md:gap-6" style={shake}>
           <div className="min-h-0 shrink-0 basis-[38%]">
             <FitText
               text={q.text}
@@ -170,6 +269,11 @@ export function DisplayPage() {
               return (
                 <div
                   key={i}
+                  style={
+                    highlight
+                      ? { animation: "wtf-wobble 0.6s ease-in-out 2" }
+                      : undefined
+                  }
                   className={`min-h-0 rounded-2xl border-2 p-3 transition-all duration-300 ${
                     highlight ? p.choiceOk : p.choice
                   }`}
@@ -188,12 +292,13 @@ export function DisplayPage() {
         </div>
       ) : (
         // Question libre : énoncé qui remplit l'écran, réponse en dessous si révélée.
-        <div className="flex min-h-0 flex-1 flex-col gap-6">
+        <div className="flex min-h-0 flex-1 flex-col gap-6" style={shake}>
           <div className="min-h-0 flex-1">
             <FitText text={q.text} className="font-black tracking-tight" />
           </div>
           {revealed && q.answer && (
             <div
+              style={{ animation: "wtf-wobble 0.6s ease-in-out 2" }}
               className={`flex min-h-0 shrink-0 basis-[38%] flex-col rounded-2xl border-2 p-4 ${p.answerBox}`}
             >
               <div
