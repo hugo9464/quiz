@@ -462,14 +462,22 @@ function QuestionRow({
             </span>
           )}
         </div>
-        <div className={`mt-1 text-sm ${palette.rowAnswer}`}>
-          {q.type === "text"
-            ? `Réponse : ${q.answer || "(vide)"}`
-            : q.choices
-                ?.filter((c) => c.correct)
-                .map((c) => c.text)
-                .join(", ")}
-        </div>
+        {q.type === "text" ? (
+          <div className={`mt-1 text-sm ${palette.rowAnswer}`}>
+            Réponse : {q.answer || "(vide)"}
+          </div>
+        ) : (
+          <ul className="mt-1 space-y-0.5 text-sm">
+            {q.choices?.map((c, i) => (
+              <li
+                key={i}
+                className={c.correct ? palette.rowAnswer : palette.muted}
+              >
+                {c.correct ? "✓" : "•"} {c.text}
+              </li>
+            ))}
+          </ul>
+        )}
       </button>
     </li>
   );
