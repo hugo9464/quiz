@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useLiveQuery } from "../lib/useLiveQuery";
 import { getDisplayState } from "../lib/api";
@@ -12,6 +12,7 @@ function FitText({
   className = "",
   max = 600,
   fill = 0.85,
+  onFit,
 }: {
   text: string;
   className?: string;
@@ -19,6 +20,8 @@ function FitText({
   // Fraction de la taille maximale réellement appliquée (< 1 = un peu plus petit,
   // laisse une marge autour du texte).
   fill?: number;
+  // Notifie la taille de police finale appliquée (px).
+  onFit?: (px: number) => void;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -44,13 +47,15 @@ function FitText({
           hi = mid;
         }
       }
-      el.style.fontSize = `${best * fill}px`;
+      const applied = best * fill;
+      el.style.fontSize = `${applied}px`;
+      onFit?.(applied);
     };
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(box);
     return () => ro.disconnect();
-  }, [text, max, fill]);
+  }, [text, max, fill, onFit]);
 
   return (
     <div
@@ -94,6 +99,8 @@ export function DisplayPage() {
     id,
   );
   const p = palette(state?.theme ?? "dark");
+  // Taille de police de l'énoncé QCM, pour plafonner les propositions en dessous.
+  const [qSize, setQSize] = useState<number | null>(null);
 
   if (state === undefined) {
     return <Screen className={p.screen}>…</Screen>;
@@ -146,8 +153,12 @@ export function DisplayPage() {
       {q.type === "mcq" && q.choices ? (
         // QCM : énoncé en haut (auto-fit), propositions qui remplissent le reste.
         <div className="flex min-h-0 flex-1 flex-col gap-4 md:gap-6">
-          <div className="min-h-0 shrink-0 basis-[28%]">
-            <FitText text={q.text} className="font-black tracking-tight" />
+          <div className="min-h-0 shrink-0 basis-[38%]">
+            <FitText
+              text={q.text}
+              className="font-black tracking-tight"
+              onFit={setQSize}
+            />
           </div>
           <div
             className={`grid min-h-0 flex-1 auto-rows-fr gap-3 md:gap-5 ${
@@ -163,7 +174,13 @@ export function DisplayPage() {
                     highlight ? p.choiceOk : p.choice
                   }`}
                 >
-                  <FitText text={c.text} className="font-bold" max={200} />
+                  {/* Propositions plafonnées à 60% de la taille de l'énoncé :
+                      la question reste toujours la plus grosse. */}
+                  <FitText
+                    text={c.text}
+                    className="font-bold"
+                    max={qSize ? qSize * 0.6 : 90}
+                  />
                 </div>
               );
             })}
