@@ -3,7 +3,12 @@
 // `api.ts` conservent les mêmes noms de champs camelCase que les anciens docs
 // Convex (`_id`, `quizId`, `timerEndsAt`…) pour minimiser les changements côté UI.
 
-export type Phase = "idle" | "question" | "reveal" | "round_end";
+export type Phase =
+  | "idle"
+  | "question"
+  | "reveal"
+  | "round_end"
+  | "round_intro";
 export type QuestionType = "text" | "mcq";
 export type Choice = { text: string; correct: boolean };
 export type Theme = "dark" | "light";

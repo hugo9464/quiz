@@ -98,7 +98,9 @@ export function HostPage() {
   const tvTheme = control?.theme ?? "dark";
   const reviewing = control?.reviewing ?? false;
   const atRoundEnd = phase === "round_end";
-  const canReveal = !!activeId && !atRoundEnd;
+  const atRoundIntro = phase === "round_intro";
+  const atBreak = atRoundEnd || atRoundIntro;
+  const canReveal = !!activeId && !atBreak;
 
   const phaseLabel =
     phase === "idle"
@@ -107,9 +109,11 @@ export function HostPage() {
         ? "Question affichée"
         : phase === "reveal"
           ? "Réponse révélée"
-          : "Fin de manche";
+          : phase === "round_intro"
+            ? "Intro de manche"
+            : "Fin de manche";
   const stateLabel =
-    reviewing && phase !== "idle" && phase !== "round_end"
+    reviewing && (phase === "question" || phase === "reveal")
       ? `Correction · ${phaseLabel}`
       : phaseLabel;
 
@@ -256,6 +260,19 @@ export function HostPage() {
               </div>
             </div>
           )}
+          {atRoundIntro && (
+            <div
+              className={`mt-3 rounded-xl border p-4 text-center ${p.card}`}
+            >
+              <div className={`text-sm font-semibold uppercase tracking-wider ${p.round}`}>
+                Intro : {activeRoundTitle}
+              </div>
+              <div className={`mt-1 text-sm ${p.muted}`}>
+                L'écran annonce la manche à venir — « Commencer la manche » lance
+                sa première question.
+              </div>
+            </div>
+          )}
 
           {/* Navigation principale : gros boutons tactiles */}
           <div className="mt-3 flex gap-2">
@@ -273,7 +290,9 @@ export function HostPage() {
                 ? "Démarrer →"
                 : atRoundEnd
                   ? "Dévoiler les réponses →"
-                  : "Suivant →"}
+                  : atRoundIntro
+                    ? "Commencer la manche →"
+                    : "Suivant →"}
             </button>
           </div>
 

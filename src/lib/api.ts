@@ -470,6 +470,11 @@ export function nextControlPatch(
     };
   }
 
+  // Depuis l'intro de manche ("Round X") : on lance la 1re question (déjà active).
+  if (control.phase === "round_intro") {
+    return { phase: "question", reviewing: false, timer_ends_at: null };
+  }
+
   const currentIndex = control.activeQuestionId
     ? ordered.findIndex((q) => q.id === control.activeQuestionId)
     : -1;
@@ -492,10 +497,11 @@ export function nextControlPatch(
   // Passe de correction en cours.
   if (control.reviewing) {
     if (endOfQuiz) return null; // fin du quiz : on reste sur la dernière réponse
+    // Fin de la correction d'une manche → écran d'intro de la manche suivante.
     if (changesRound) {
       return {
         active_question_id: ordered[nextIndex].id,
-        phase: "question",
+        phase: "round_intro",
         reviewing: false,
         timer_ends_at: null,
       };
@@ -527,6 +533,18 @@ export function prevControlPatch(
   // Depuis l'écran de fin de manche : on revient à la dernière question affichée.
   if (control.phase === "round_end") {
     return { phase: "question", timer_ends_at: null };
+  }
+
+  // Depuis l'intro de manche : on revient à la dernière réponse corrigée (manche précédente).
+  if (control.phase === "round_intro") {
+    const idx = ordered.findIndex((q) => q.id === control.activeQuestionId);
+    if (idx <= 0) return null;
+    return {
+      active_question_id: ordered[idx - 1].id,
+      phase: "reveal",
+      reviewing: true,
+      timer_ends_at: null,
+    };
   }
 
   const currentIndex = control.activeQuestionId
@@ -665,8 +683,8 @@ export async function getDisplayState({
 
   if (activeDoc) {
     roundTitle = rounds.find((r) => r._id === activeDoc.roundId)?.title ?? "";
-    // La question n'est renvoyée qu'en phase active (pas en fin de manche).
-    if (control?.phase !== "round_end") {
+    // La question n'est renvoyée qu'en phase active (pas sur les écrans de manche).
+    if (control?.phase !== "round_end" && control?.phase !== "round_intro") {
       question = activeDoc;
       questionNumber = ordered.findIndex((q) => q._id === activeDoc._id) + 1;
     }

@@ -120,6 +120,67 @@ const WTF_PHRASES = [
   "RESPECT",
   "NO WAY",
   "TROP FORT",
+  "BADABOUM !",
+  "ET TOC !",
+  "IMPARABLE",
+  "DE OUF",
+  "COLOSSAL",
+  "GG LES BOSS",
+  "FASTOCHE",
+  "MONUMENTAL",
+  "OH LA LA",
+  "SÉRIEUX ?!",
+  "C'EST BEAU",
+  "CHAPEAU BAS",
+  "QUELLE CULTURE",
+  "SANS FORCER",
+  "LES YEUX FERMÉS",
+  "TU L'AS EU",
+  "DANS TA FACE",
+  "PROPRE",
+  "NICKEL",
+  "ÇA DÉPOTE",
+  "LÉGENDAIRE",
+  "PHÉNOMÉNAL",
+  "BOOM SHAKALAKA",
+  "TABLEAU DE MAÎTRE",
+  "ÉPOUSTOUFLANT",
+  "CARTON PLEIN",
+  "ET BAM !",
+  "OUH LÀ !",
+  "AH BAH VOILÀ",
+  "GÉNIAL",
+  "STRATOSPHÉRIQUE",
+  "DE HAUT VOL",
+  "QUE DU LOURD",
+  "C'EST CADEAU",
+  "MOULT POINTS",
+  "SPECTACULAIRE",
+  "BLUFFANT",
+  "COMME UN CHEF",
+  "TROP BALÈZE",
+  "IMPRESSIONNANT",
+  "MAJESTUEUX",
+  "ÇA C'EST FAIT",
+  "SANTÉ !",
+  "TOURNÉE GÉNÉRALE",
+  "ALLEZ HOP",
+  "PILE POIL",
+  "DROIT AU BUT",
+  "OYÉ OYÉ",
+  "MIRACULEUX",
+  "DIABOLIQUE",
+  "GRANDIOSE",
+  "TU ASSURES",
+  "HALLUCINANT",
+  "COMME PAR MAGIE",
+  "AH OUI TIENS",
+  "TROP D'AISE",
+  "IMPÉRIAL",
+  "FINE ÉQUIPE",
+  "ROULEZ JEUNESSE",
+  "AU TOP",
+  "C'EST DANS LA POCHE",
 ];
 
 const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
@@ -218,6 +279,27 @@ export function DisplayPage() {
           )}
           <p className={`mt-8 text-3xl md:text-4xl ${p.subtle}`}>
             Nous allons passer vous corriger
+          </p>
+        </div>
+      </Screen>
+    );
+  }
+
+  // Intro de manche : on annonce la manche à venir avant sa première question.
+  if (state.phase === "round_intro") {
+    return (
+      <Screen className={p.screen}>
+        <div className="m-auto text-center">
+          <div
+            className={`text-3xl font-semibold uppercase tracking-widest md:text-4xl ${p.round}`}
+          >
+            Manche suivante
+          </div>
+          <h1 className="mt-4 text-7xl font-black tracking-tight md:text-9xl">
+            {state.roundTitle}
+          </h1>
+          <p className={`mt-8 text-3xl md:text-4xl ${p.subtle}`}>
+            C'est parti !
           </p>
         </div>
       </Screen>
