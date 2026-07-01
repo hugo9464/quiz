@@ -272,6 +272,23 @@ export async function updateQuestion({
   check(error);
 }
 
+// Réordonne les questions : `orderedIds` est la nouvelle liste ordonnée (index → order).
+export async function reorderQuestions({
+  orderedIds,
+}: {
+  orderedIds: string[];
+}): Promise<void> {
+  await Promise.all(
+    orderedIds.map(async (id, i) => {
+      const { error } = await supabase
+        .from("questions")
+        .update({ order: i })
+        .eq("id", id);
+      check(error);
+    }),
+  );
+}
+
 export async function deleteQuestion({
   questionId,
 }: {
@@ -415,95 +432,163 @@ export async function hideAnswer({
   }
 }
 
-// Avance d'un cran dans le déroulé d'animation. Chaque manche comporte deux passes :
+// --- Navigation : calcul PUR (sans requête) du prochain état de contrôle ---
+// La page Animer a déjà l'état + les manches + les questions en mémoire (live),
+// donc elle calcule la cible côté client et n'envoie qu'une seule écriture.
+
+export type NavControl = {
+  activeQuestionId: string | null;
+  phase: Phase;
+  reviewing: boolean;
+};
+export type NavItem = { id: string; roundId: string };
+
+// Chaque manche comporte deux passes :
 //   1. passe "questions" : Q1..QN (les équipes répondent) → écran de fin de manche
 //   2. passe "correction" (reviewing) : on redéroule Q1..QN de la MÊME manche pour
 //      dévoiler les réponses (bouton Révéler), puis on enchaîne sur la manche suivante.
-export async function nextQuestion({
-  quizId,
-}: {
-  quizId: string;
-}): Promise<void> {
-  const control = await getOrCreateControl(quizId);
-  const ordered = await orderedQuestions(quizId);
-  if (ordered.length === 0) return;
+// Renvoie le patch snake_case à appliquer, ou null si aucun changement.
+export function nextControlPatch(
+  control: NavControl,
+  ordered: NavItem[],
+): Record<string, unknown> | null {
+  if (ordered.length === 0) return null;
 
-  // Depuis l'écran de fin de manche : on démarre la passe de correction sur la
-  // première question de la manche qui vient de se terminer.
+  // Depuis l'écran de fin de manche : passe de correction sur la 1re question de la manche terminée.
   if (control.phase === "round_end") {
-    const lastIdx = ordered.findIndex(
-      (q) => q.id === control.active_question_id,
-    );
-    if (lastIdx === -1) return;
-    const roundId = ordered[lastIdx].round_id;
-    const firstOfRound = ordered.find((q) => q.round_id === roundId);
-    if (!firstOfRound) return;
-    await patchControl(control.id, {
-      active_question_id: firstOfRound.id,
+    const lastIdx = ordered.findIndex((q) => q.id === control.activeQuestionId);
+    if (lastIdx === -1) return null;
+    const roundId = ordered[lastIdx].roundId;
+    const first = ordered.find((q) => q.roundId === roundId);
+    if (!first) return null;
+    return {
+      active_question_id: first.id,
       phase: "question",
       reviewing: true,
       timer_ends_at: null,
-    });
-    return;
+    };
   }
 
-  const currentIndex = control.active_question_id
-    ? ordered.findIndex((q) => q.id === control.active_question_id)
+  const currentIndex = control.activeQuestionId
+    ? ordered.findIndex((q) => q.id === control.activeQuestionId)
     : -1;
 
-  // Pas encore démarré : on affiche la première question (passe questions).
+  // Pas encore démarré : première question (passe questions).
   if (currentIndex === -1) {
-    await patchControl(control.id, {
+    return {
       active_question_id: ordered[0].id,
       phase: "question",
       reviewing: false,
       timer_ends_at: null,
-    });
-    return;
+    };
   }
 
   const nextIndex = currentIndex + 1;
   const endOfQuiz = nextIndex >= ordered.length;
   const changesRound =
-    !endOfQuiz &&
-    ordered[nextIndex].round_id !== ordered[currentIndex].round_id;
+    !endOfQuiz && ordered[nextIndex].roundId !== ordered[currentIndex].roundId;
 
   // Passe de correction en cours.
   if (control.reviewing) {
-    if (endOfQuiz) return; // fin du quiz : on reste sur la dernière réponse dévoilée
-    // Fin de la manche corrigée → première question de la manche suivante (nouvelle passe questions).
+    if (endOfQuiz) return null; // fin du quiz : on reste sur la dernière réponse
     if (changesRound) {
-      await patchControl(control.id, {
+      return {
         active_question_id: ordered[nextIndex].id,
         phase: "question",
         reviewing: false,
         timer_ends_at: null,
-      });
-      return;
+      };
     }
-    // Question suivante de la correction (même manche).
-    await patchControl(control.id, {
+    return {
       active_question_id: ordered[nextIndex].id,
       phase: "question",
       timer_ends_at: null,
-    });
-    return;
+    };
   }
 
-  // Passe questions : à la dernière question de la manche (ou du quiz) → écran de fin de manche.
+  // Passe questions : dernière question de la manche (ou du quiz) → écran de fin de manche.
   if (endOfQuiz || changesRound) {
-    await patchControl(control.id, {
-      phase: "round_end",
-      timer_ends_at: null,
-    });
-    return;
+    return { phase: "round_end", timer_ends_at: null };
   }
-
-  await patchControl(control.id, {
+  return {
     active_question_id: ordered[nextIndex].id,
     phase: "question",
     timer_ends_at: null,
-  });
+  };
+}
+
+export function prevControlPatch(
+  control: NavControl,
+  ordered: NavItem[],
+): Record<string, unknown> | null {
+  if (ordered.length === 0) return null;
+
+  // Depuis l'écran de fin de manche : on revient à la dernière question affichée.
+  if (control.phase === "round_end") {
+    return { phase: "question", timer_ends_at: null };
+  }
+
+  const currentIndex = control.activeQuestionId
+    ? ordered.findIndex((q) => q.id === control.activeQuestionId)
+    : -1;
+
+  if (currentIndex === -1) {
+    return {
+      active_question_id: ordered[ordered.length - 1].id,
+      phase: "question",
+      timer_ends_at: null,
+    };
+  }
+
+  const prevIndex = currentIndex - 1;
+  if (prevIndex < 0) return null; // déjà à la première question
+  return {
+    active_question_id: ordered[prevIndex].id,
+    phase: "question",
+    timer_ends_at: null,
+  };
+}
+
+// Écrit directement une mise à jour de l'état de contrôle (1 seul aller-retour).
+// À utiliser quand l'appelant connaît déjà l'id du control (page Animer).
+export async function updateControl({
+  controlId,
+  patch,
+}: {
+  controlId: string;
+  patch: Record<string, unknown>;
+}): Promise<void> {
+  await patchControl(controlId, patch);
+}
+
+// Variantes "serveur" (récupèrent l'état si l'appelant ne l'a pas). Conservées
+// pour compat ; la page Animer utilise le chemin rapide client ci-dessus.
+async function navQuestion(
+  quizId: string,
+  compute: typeof nextControlPatch,
+): Promise<void> {
+  const control = await getOrCreateControl(quizId);
+  const ordered = (await orderedQuestions(quizId)).map((q) => ({
+    id: q.id,
+    roundId: q.round_id,
+  }));
+  const patch = compute(
+    {
+      activeQuestionId: control.active_question_id,
+      phase: control.phase,
+      reviewing: control.reviewing,
+    },
+    ordered,
+  );
+  if (patch) await patchControl(control.id, patch);
+}
+
+export async function nextQuestion({
+  quizId,
+}: {
+  quizId: string;
+}): Promise<void> {
+  await navQuestion(quizId, nextControlPatch);
 }
 
 export async function prevQuestion({
@@ -511,36 +596,7 @@ export async function prevQuestion({
 }: {
   quizId: string;
 }): Promise<void> {
-  const control = await getOrCreateControl(quizId);
-  const ordered = await orderedQuestions(quizId);
-  if (ordered.length === 0) return;
-
-  // Depuis l'écran de fin de manche : on revient à la dernière question affichée.
-  if (control.phase === "round_end") {
-    await patchControl(control.id, { phase: "question", timer_ends_at: null });
-    return;
-  }
-
-  const currentIndex = control.active_question_id
-    ? ordered.findIndex((q) => q.id === control.active_question_id)
-    : -1;
-
-  if (currentIndex === -1) {
-    await patchControl(control.id, {
-      active_question_id: ordered[ordered.length - 1].id,
-      phase: "question",
-      timer_ends_at: null,
-    });
-    return;
-  }
-
-  const prevIndex = currentIndex - 1;
-  if (prevIndex < 0) return; // déjà à la première question
-  await patchControl(control.id, {
-    active_question_id: ordered[prevIndex].id,
-    phase: "question",
-    timer_ends_at: null,
-  });
+  await navQuestion(quizId, prevControlPatch);
 }
 
 // Remet l'écran au repos (logo / attente).

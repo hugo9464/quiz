@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import { useLiveQuery } from "../lib/useLiveQuery";
 import {
@@ -10,6 +10,7 @@ import {
   listByQuiz,
   listRounds,
   renameRound,
+  reorderQuestions,
   updateQuestion,
 } from "../lib/api";
 import type { Question, Round, Theme } from "../lib/types";
@@ -99,6 +100,37 @@ function RoundSection({
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  // Ordre local pour le drag-and-drop (feedback immédiat), resynchronisé quand
+  // le serveur renvoie une liste différente (ajout/suppression/réordre).
+  const [order, setOrder] = useState<Question[]>(questions);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const serverKey = questions.map((q) => q._id).join(",");
+  useEffect(() => {
+    setOrder(questions);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverKey]);
+
+  const handleDragOver = (overId: string) => {
+    if (!dragId || dragId === overId) return;
+    setOrder((prev) => {
+      const from = prev.findIndex((q) => q._id === dragId);
+      const to = prev.findIndex((q) => q._id === overId);
+      if (from === -1 || to === -1) return prev;
+      const copy = prev.slice();
+      const [moved] = copy.splice(from, 1);
+      copy.splice(to, 0, moved);
+      return copy;
+    });
+  };
+
+  const handleDrop = () => {
+    if (!dragId) return;
+    setDragId(null);
+    const ids = order.map((q) => q._id);
+    // N'écrit que si l'ordre a réellement changé.
+    if (ids.join(",") !== serverKey) reorderQuestions({ orderedIds: ids });
+  };
+
   return (
     <section>
       <div className="mb-3 flex items-center gap-2">
@@ -122,7 +154,7 @@ function RoundSection({
       </div>
 
       <ol className="space-y-2">
-        {questions.map((q, i) =>
+        {order.map((q, i) =>
           editingId === q._id ? (
             <li key={q._id}>
               <QuestionForm
@@ -143,12 +175,31 @@ function RoundSection({
           ) : (
             <li
               key={q._id}
-              className="flex items-start justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3"
+              draggable
+              onDragStart={() => setDragId(q._id)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                handleDragOver(q._id);
+              }}
+              onDrop={handleDrop}
+              onDragEnd={() => setDragId(null)}
+              className={`flex items-start justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-3 transition ${
+                dragId === q._id ? "opacity-40" : ""
+              }`}
             >
-              <div className="min-w-0">
-                <span className="mr-2 text-sm text-zinc-500">{i + 1}.</span>
-                <span className="font-medium">{q.text}</span>
-                <QuestionAnswerPreview q={q} />
+              <div className="flex min-w-0 items-start gap-2">
+                <span
+                  className="mt-0.5 shrink-0 cursor-grab select-none px-1 leading-none text-zinc-600 active:cursor-grabbing"
+                  title="Glisser pour réordonner"
+                  aria-hidden
+                >
+                  ⋮⋮
+                </span>
+                <div className="min-w-0">
+                  <span className="mr-2 text-sm text-zinc-500">{i + 1}.</span>
+                  <span className="font-medium">{q.text}</span>
+                  <QuestionAnswerPreview q={q} />
+                </div>
               </div>
               <div className="flex shrink-0 gap-1 text-sm">
                 <button

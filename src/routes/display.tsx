@@ -10,7 +10,6 @@ function palette(theme: Theme) {
     screen: dark ? "bg-zinc-950 text-zinc-50" : "bg-zinc-50 text-zinc-900",
     subtle: dark ? "text-zinc-400" : "text-zinc-500",
     round: dark ? "text-violet-400" : "text-violet-600",
-    count: dark ? "text-zinc-500" : "text-zinc-500",
     choice: dark
       ? "border-zinc-700 bg-zinc-900/60 text-zinc-100"
       : "border-zinc-300 bg-white text-zinc-900",
@@ -90,18 +89,6 @@ export function DisplayPage() {
 
   return (
     <Screen className={p.screen}>
-      {/* En-tête : manche + numéro + timer */}
-      <div className="flex items-center justify-between">
-        <div
-          className={`text-2xl font-semibold uppercase tracking-widest md:text-3xl ${p.round}`}
-        >
-          {state.roundTitle}
-        </div>
-        <div className={`text-2xl md:text-3xl ${p.count}`}>
-          Question {state.questionNumber} / {state.totalQuestions}
-        </div>
-      </div>
-
       {/* Énoncé */}
       <div
         className={`flex flex-1 flex-col text-center ${

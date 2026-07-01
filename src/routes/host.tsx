@@ -7,12 +7,15 @@ import {
   hideAnswer as hide,
   listByQuiz,
   listRounds,
+  nextControlPatch,
   nextQuestion as next,
+  prevControlPatch,
   prevQuestion as prev,
   reset as resetControl,
   revealAnswer as reveal,
   setActiveQuestion as setActive,
   setTheme,
+  updateControl,
 } from "../lib/api";
 import type { Phase, Question, Theme } from "../lib/types";
 import { TopBar } from "./edit";
@@ -133,6 +136,40 @@ export function HostPage() {
       ? rounds.find((r) => r._id === activeQuestion.roundId)?.title ?? ""
       : "";
 
+  // Chemin rapide : on calcule la cible côté client (données déjà en mémoire) et
+  // on n'envoie qu'une seule écriture, au lieu de 3 allers-retours réseau.
+  const navItems = orderedQs.map((q) => ({ id: q._id, roundId: q.roundId }));
+  const goNext = () => {
+    if (control && navItems.length) {
+      const patch = nextControlPatch(
+        {
+          activeQuestionId: control.activeQuestionId,
+          phase: control.phase,
+          reviewing: control.reviewing,
+        },
+        navItems,
+      );
+      if (patch) void updateControl({ controlId: control._id, patch });
+    } else {
+      void next({ quizId: id });
+    }
+  };
+  const goPrev = () => {
+    if (control && navItems.length) {
+      const patch = prevControlPatch(
+        {
+          activeQuestionId: control.activeQuestionId,
+          phase: control.phase,
+          reviewing: control.reviewing,
+        },
+        navItems,
+      );
+      if (patch) void updateControl({ controlId: control._id, patch });
+    } else {
+      void prev({ quizId: id });
+    }
+  };
+
   return (
     <div className={`min-h-screen transition-colors ${p.page}`}>
       <div className="mx-auto max-w-3xl px-3 py-4 sm:px-6 sm:py-8">
@@ -209,13 +246,13 @@ export function HostPage() {
           {/* Navigation principale : gros boutons tactiles */}
           <div className="mt-3 flex gap-2">
             <button
-              onClick={() => prev({ quizId: id })}
+              onClick={goPrev}
               className={`flex-1 rounded-xl px-3 py-3.5 text-base font-medium active:scale-[0.98] ${p.neutral}`}
             >
               ← Préc.
             </button>
             <button
-              onClick={() => next({ quizId: id })}
+              onClick={goNext}
               className="flex-[2] rounded-xl bg-violet-600 px-3 py-3.5 text-base font-bold text-white active:scale-[0.98] hover:bg-violet-500"
             >
               {phase === "idle"
